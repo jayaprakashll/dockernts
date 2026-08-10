@@ -1,0 +1,18 @@
+services:
+  manager:
+    build:
+      context: .
+      dockerfile: manager/Dockerfile
+    environment:
+      CLUSTER_TOKEN: dev-token-change-me
+      MANAGER_GRPC_PORT: 9000
+      MANAGER_HTTP_PORT: 8000
+      MANAGER_DB_URL: sqlite:////data/orchestrator.db
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - manager_data:/data
+
+volumes:
+  manager_data:

@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package orchestrator;
+
+// This is the protobuf contract equivalent of the JSON-over-gRPC MVP.
+// The runnable code uses gRPC generic handlers with JSON serializers so no
+// protoc-generated Python files are required. You can migrate to generated
+// protobuf stubs later without changing the Manager/Agent responsibilities.
+
+message Empty {}
+message RegisterRequest {
+  string token = 1;
+  string machine_id = 2;
+  string name = 3;
+  string hostname = 4;
+  string ip = 5;
+  int32 agent_port = 6;
+  int32 cpu_count = 7;
+  int64 memory_mb = 8;
+  string docker_version = 9;
+}
+message HeartbeatRequest {
+  string token = 1;
+  string machine_id = 2;
+  double cpu_percent = 3;
+  double memory_percent = 4;
+  int32 running_containers = 5;
+  string health = 6;
+}
+message Reply { bool ok = 1; string message = 2; }
+
+service ManagerService {
+  rpc Register(RegisterRequest) returns (Reply);
+  rpc Heartbeat(HeartbeatRequest) returns (Reply);
+}
+
+message ContainerRequest { string token = 1; string container_id = 2; }
+message ListRequest { string token = 1; bool all = 2; }
+message CreateRequest {
+  string token = 1;
+  string image = 2;
+  int32 replicas = 3;
+  string name_prefix = 4;
+  repeated string env = 5;
+  string ports_json = 6;
+  repeated string volumes = 7;
+  string network = 8;
+}
+message ContainerReply { bool ok = 1; string json = 2; }
+
+service AgentService {
+  rpc Ping(Empty) returns (Reply);
+  rpc ListContainers(ListRequest) returns (ContainerReply);
+  rpc CreateContainers(CreateRequest) returns (ContainerReply);
+  rpc StartContainer(ContainerRequest) returns (ContainerReply);
+  rpc StopContainer(ContainerRequest) returns (ContainerReply);
+  rpc RestartContainer(ContainerRequest) returns (ContainerReply);
+  rpc RemoveContainer(ContainerRequest) returns (ContainerReply);
+}
