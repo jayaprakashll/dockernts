@@ -4,5 +4,6 @@ __pycache__/
 *.pyo
 orchestrator.db
 agent.yaml
-.env
+env/
 .pytest_cache/
+

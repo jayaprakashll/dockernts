@@ -1,0 +1,3 @@
+[console_scripts]
+orchestrator = cli.orchestrator.main:app
+orchestrator-agent = agent.cli:app
