@@ -1,31 +1,3 @@
-"""
-dockernts — Streamlit cluster dashboard (pixel-matched to mockup)
-===================================================================
-Real API integration (no mock data), reskinned to match the ink/amber
-HTML mockup: Space Grotesk + IBM Plex Mono + Inter, machine cards with
-an animated heartbeat trace, and a containers table with filter chips.
-
-v2 fixes:
-  - Containers table was rendering as a literal code block because the
-    generated HTML had leading indentation (Markdown treats 4+ leading
-    spaces as a code fence). All HTML-producing helpers now strip
-    leading whitespace before being handed to st.markdown.
-  - Ports column was dumping the raw Docker ports dict, e.g.
-    "{'80/tcp': None}" — now formatted as "80" / "8080:80" etc.
-  - Dark / Light toggle restored at the top of the sidebar.
-  - CPU/MEM bars now check several common field-name variants
-    (cpu_percent, cpu, cpu_usage, mem_percent, memory_percent, mem)
-    so real numbers show up if your API reports them under a
-    different key. Still shows "—" rather than a fabricated number
-    if nothing matches.
-  - Deploy dialog reworked with a proper header/subtitle block instead
-    of the bare default Streamlit dialog look.
-
-Run:
-    pip install streamlit requests
-    streamlit run app.py
-"""
-
 from __future__ import annotations
 
 import re
@@ -45,10 +17,6 @@ def html(s: str) -> str:
     return re.sub(r"(?m)^[ \t]+", "", s).strip()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  DESIGN TOKENS — lifted 1:1 from the mockup's :root variables, with a
-#  light counterpart for the theme toggle.
-# ═══════════════════════════════════════════════════════════════════════
 DARK_VARS = {
     "ink": "#0F1319", "panel": "#161C25", "panel-raised": "#1B222C",
     "line": "#262E3A", "line-soft": "#1E2530",
@@ -75,10 +43,7 @@ def _vars_block(d: dict) -> str:
     return "\n".join(f"--{k}:{v};" for k, v in d.items())
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  THEME TOGGLE — rendered first so the CSS below can bake in the right
-#  palette before anything else on the page.
-# ═══════════════════════════════════════════════════════════════════════
+
 if "theme_choice" not in st.session_state:
     st.session_state.theme_choice = "Dark"
 
@@ -113,9 +78,7 @@ _THEME = st.session_state.theme_choice
 VARS = DARK_VARS if _THEME == "Dark" else LIGHT_VARS
 _root_css = f":root{{{_vars_block(VARS)}}}"
 
-# ═══════════════════════════════════════════════════════════════════════
-#  GLOBAL CSS
-# ═══════════════════════════════════════════════════════════════════════
+
 st.markdown(
     html(f"""
     <style>
@@ -357,9 +320,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ═══════════════════════════════════════════════════════════════════════
-#  SESSION STATE
-# ═══════════════════════════════════════════════════════════════════════
+
 if "session_deploys" not in st.session_state:
     st.session_state.session_deploys = []
 if "auto_refresh" not in st.session_state:
@@ -367,9 +328,7 @@ if "auto_refresh" not in st.session_state:
 if "container_filter" not in st.session_state:
     st.session_state.container_filter = "All machines"
 
-# ═══════════════════════════════════════════════════════════════════════
-#  SIDEBAR — connection settings
-# ═══════════════════════════════════════════════════════════════════════
+
 with st.sidebar:
     st.markdown(
         html(f"""
@@ -404,9 +363,7 @@ with st.sidebar:
     if not healthy:
         st.caption("Can't reach the manager — check the server address above.")
 
-# ═══════════════════════════════════════════════════════════════════════
-#  API HELPERS
-# ═══════════════════════════════════════════════════════════════════════
+
 def api_get(path, params=None):
     try:
         r = requests.get(f"{api_base}{path}", params=params, timeout=timeout_s)
@@ -449,391 +406,3 @@ with st.sidebar:
 
 
 @st.cache_data(ttl=4, show_spinner=False)
-def fetch_machines(_base):
-    data, err = api_get("/machines")
-    return (data or {}).get("machines", []), err
-
-
-@st.cache_data(ttl=4, show_spinner=False)
-def fetch_containers(_base, machine=None):
-    data, err = api_get("/containers", params={"machine": machine} if machine else None)
-    return (data or {}).get("containers", []), err
-
-
-def relative_time(iso_str):
-    if not iso_str:
-        return "never"
-    try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        secs = (datetime.now(timezone.utc) - dt).total_seconds()
-        if secs < 60: return f"{int(secs)}s ago"
-        if secs < 3600: return f"{int(secs // 60)}m ago"
-        if secs < 86400: return f"{int(secs // 3600)}h ago"
-        return f"{int(secs // 86400)}d ago"
-    except Exception:
-        return iso_str
-
-
-def refresh():
-    st.cache_data.clear()
-    st.rerun()
-
-
-def connection_issue(label: str, err: str | None):
-    if not err:
-        return
-    st.markdown(
-        html(f"""
-        <div class="issue-row">
-        <span class="status-pill exited"><span class="d"></span>{label} unavailable</span>
-        <span class="issue-note">manager may be unreachable, starting up, or slow to respond</span>
-        </div>
-        """),
-        unsafe_allow_html=True,
-    )
-    with st.expander("Technical details", expanded=False):
-        st.code(err, language="text")
-
-
-def quiet_loading(label: str, err: str | None):
-    """Low-key placeholder for the initial page fetch — no alarming red
-    box, no expander. Used where a brief hiccup while the manager warms
-    up shouldn't look like a hard failure."""
-    if not err:
-        return
-    st.markdown(
-        f'<div style="font-family:\'IBM Plex Mono\',monospace; font-size:12px; color:var(--dim); '
-        f'padding:8px 2px; margin-bottom:6px;">Loading {label.lower()}…</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def first_present(d: dict, keys: list[str]):
-    """Return the first non-None value found under any of these keys —
-    lets the UI pick up cpu/mem stats regardless of naming convention."""
-    for k in keys:
-        v = d.get(k)
-        if v is not None:
-            return v
-    return None
-
-
-def format_ports(ports) -> str:
-    """Docker-style ports dict -> readable string.
-    {'80/tcp': None} -> '80'
-    {'80/tcp': [{'HostPort': '8080'}]} -> '8080:80'
-    """
-    if not ports:
-        return "—"
-    if isinstance(ports, str):
-        return ports if ports.strip() else "—"
-    if isinstance(ports, dict):
-        parts = []
-        for container_port, bindings in ports.items():
-            cport = container_port.split("/")[0] if isinstance(container_port, str) else container_port
-            if not bindings:
-                parts.append(str(cport))
-            elif isinstance(bindings, list):
-                for b in bindings:
-                    host_port = b.get("HostPort") if isinstance(b, dict) else b
-                    parts.append(f"{host_port}:{cport}" if host_port else str(cport))
-            else:
-                parts.append(f"{bindings}:{cport}")
-        return ", ".join(parts) if parts else "—"
-    if isinstance(ports, list):
-        return ", ".join(str(p) for p in ports) if ports else "—"
-    return str(ports)
-
-
-# the exact heartbeat waveform used in the mockup
-TRACE_PATH = "M0,13 L40,13 L48,13 L54,3 L60,23 L66,13 L74,13 L120,13 L128,13 L134,3 L140,23 L146,13 L154,13 L200,13"
-
-
-def machine_card_html(m: dict) -> str:
-    status = (m.get("status") or "unknown").lower()
-    is_online = status in ("healthy", "online")
-    state_cls = "online" if is_online else "offline"
-    cpu = first_present(m, ["cpu_percent", "cpu_usage", "cpu_pct", "cpu"])
-    mem = first_present(m, ["mem_percent", "memory_percent", "mem_usage", "mem_pct", "memory_usage"])
-    try:
-        cpu_val = round(float(cpu), 1) if cpu is not None else None
-    except (TypeError, ValueError):
-        cpu_val = None
-    try:
-        mem_val = round(float(mem), 1) if mem is not None else None
-    except (TypeError, ValueError):
-        mem_val = None
-    cpu_disp = f"{cpu_val}%" if cpu_val is not None else "—"
-    mem_disp = f"{mem_val}%" if mem_val is not None else "—"
-    cpu_w = cpu_val if cpu_val is not None else 0
-    mem_w = mem_val if mem_val is not None else 0
-    ip = m.get("ip") or m.get("address") or ""
-    ip_part = f"{ip} · " if ip else ""
-    return html(f"""
-    <div class="machine-card {'' if is_online else 'offline'}">
-    <div class="m-head">
-    <div>
-    <div class="m-name">{m.get('name','?')}</div>
-    <div class="m-host">{m.get('hostname','')}</div>
-    </div>
-    <div class="m-status {state_cls}">
-    <span class="beat-dot {state_cls}"></span>{'online' if is_online else 'offline'}
-    </div>
-    </div>
-    <svg class="trace" viewBox="0 0 200 26" preserveAspectRatio="none">
-    <path d="{TRACE_PATH}"/>
-    </svg>
-    <div class="bar-row">
-    <span class="bar-label">CPU</span>
-    <span class="bar-track"><span class="bar-fill cpu" style="width:{cpu_w}%"></span></span>
-    <span class="bar-val">{cpu_disp}</span>
-    </div>
-    <div class="bar-row">
-    <span class="bar-label">MEM</span>
-    <span class="bar-track"><span class="bar-fill mem" style="width:{mem_w}%"></span></span>
-    <span class="bar-val">{mem_disp}</span>
-    </div>
-    <div class="m-foot">
-    <span>{ip_part}{m.get('cpu_count','?')} cores · docker {m.get('docker_version','?')}</span>
-    <span>{relative_time(m.get('last_heartbeat'))}</span>
-    </div>
-    </div>
-    """)
-
-
-def status_pill_html(status: str) -> str:
-    s = (status or "unknown").lower()
-    cls = {"running": "running", "exited": "exited", "error": "exited", "restarting": "restarting"}.get(s, "unknown")
-    return f'<span class="status-pill {cls}"><span class="d"></span>{s}</span>'
-
-
-def containers_table_html(rows: list[dict]) -> str:
-    if not rows:
-        return html('<table class="ctable"><tbody><tr><td class="empty-cell">No containers to show.</td></tr></tbody></table>')
-    body_parts = []
-    for c in rows:
-        ref = c.get("id") or c.get("short_id") or c.get("name") or ""
-        offline = (c.get("machine_status") or "").lower() in ("offline",)
-        row = html(f"""
-        <tr>
-        <td><div class="c-name">{c.get('name','?')}</div><div class="c-id">{str(ref)[:12]}</div></td>
-        <td><span class="c-image">{c.get('image','?')}</span></td>
-        <td><div class="c-machine {'is-offline' if offline else ''}"><span class="dot"></span>{c.get('machine','?')}</div></td>
-        <td><span class="c-image">{format_ports(c.get('ports'))}</span></td>
-        <td>{status_pill_html(c.get('status'))}</td>
-        </tr>
-        """)
-        body_parts.append(row)
-    body = "".join(body_parts)
-    return html(f"""
-    <table class="ctable">
-    <thead><tr><th>Name</th><th>Image</th><th>Machine</th><th>Ports</th><th>Status</th></tr></thead>
-    <tbody>{body}</tbody>
-    </table>
-    """)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  DIALOGS
-# ═══════════════════════════════════════════════════════════════════════
-@st.dialog("Deploy containers", width="small")
-def deploy_dialog(machines):
-    st.markdown(
-        html("""
-        <div class="drawer-head">
-        <div class="brand-mark" style="width:26px;height:26px;font-size:12px;">+</div>
-        <div>
-        <div class="drawer-title">Deploy a container</div>
-        <div class="drawer-sub">Runs on a single machine · one replica per port you publish</div>
-        </div>
-        </div>
-        """),
-        unsafe_allow_html=True,
-    )
-    st.write("")
-    image = st.text_input("Image", value="nginx:latest")
-    names = [m.get("name") for m in machines] or ["(no machines registered)"]
-    col1, col2 = st.columns(2)
-    machine_choice = col1.selectbox("Machine", names)
-    replicas = col2.number_input("Replicas", min_value=1, max_value=100, value=1)
-    name_prefix = st.text_input("Name prefix (optional)", value="", placeholder="web")
-    ports_raw = st.text_input("Publish ports — host:container", value="", placeholder="8080:80")
-    st.caption("Leave empty for multiple replicas on one machine — Docker rejects duplicate host ports.")
-    env_raw = st.text_area("Environment variables — one per line", value="", placeholder="APP_ENV=dev\nLOG_LEVEL=info", height=68)
-    volumes_raw = st.text_area("Volumes — one per line", value="", placeholder="mydata:/data", height=68)
-    network = st.text_input("Network (optional)", value="", placeholder="bridge")
-
-    # Plain widgets (not st.form) on purpose: st.form submits on Enter
-    # inside any text field, which fires the deploy before every field
-    # is filled in. This only deploys when the button is actually clicked.
-    submitted = st.button(f"Deploy {int(replicas)} replicas to {machine_choice}", type="primary", use_container_width=True)
-    if submitted:
-        ports = {}
-        for line in ports_raw.splitlines():
-            line = line.strip()
-            if line and ":" in line:
-                h, c = line.split(":", 1)
-                ports[h.strip()] = c.strip()
-        env = [l.strip() for l in env_raw.splitlines() if l.strip()]
-        volumes = [l.strip() for l in volumes_raw.splitlines() if l.strip()]
-        body = {
-            "machine": machine_choice, "replicas": int(replicas), "image": image,
-            "name_prefix": name_prefix or None, "env": env, "ports": ports,
-            "volumes": volumes, "network": network or None,
-        }
-        data, err = api_post("/deployments", body)
-        if err:
-            st.error(f"Deploy failed: {err}")
-        else:
-            st.success(f"Deployed `{image}` ({replicas}x) to {machine_choice}")
-            st.session_state.session_deploys.insert(0, {
-                "time": datetime.now().strftime("%H:%M:%S"), "image": image,
-                "machine": machine_choice, "replicas": replicas,
-                "deployment_id": (data or {}).get("deployment_id"),
-            })
-            st.cache_data.clear()
-            time.sleep(0.6)
-            st.rerun()
-
-
-@st.dialog("Logs", width="small")
-def logs_dialog(ref, name):
-    st.markdown(
-        html(f"""
-        <div class="drawer-head">
-        <div>
-        <div class="drawer-title">{name or ref}</div>
-        <div class="drawer-sub">container logs</div>
-        </div>
-        </div>
-        """),
-        unsafe_allow_html=True,
-    )
-    tail = st.slider("Tail lines", 20, 500, 200)
-    data, err = api_get(f"/containers/{ref}/logs", params={"tail": tail})
-    if err:
-        connection_issue("Logs", err)
-    else:
-        text = data.get("logs") if isinstance(data, dict) else str(data)
-        st.markdown(html(f'<div class="term">{text or "(empty)"}</div>'), unsafe_allow_html=True)
-    if st.button("↻ Refresh", key="logs_refresh"):
-        st.rerun()
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  DATA
-# ═══════════════════════════════════════════════════════════════════════
-machines, m_err = fetch_machines(api_base)
-containers, c_err = fetch_containers(api_base)
-connection_issue("Machines", m_err)
-quiet_loading("Containers", c_err)
-
-online_ct = sum(1 for m in machines if (m.get("status") or "").lower() in ("healthy", "online"))
-
-# ═══════════════════════════════════════════════════════════════════════
-#  TOP BAR
-# ═══════════════════════════════════════════════════════════════════════
-tb_left, tb_right = st.columns([3, 1])
-with tb_left:
-    st.markdown(
-        html(f"""
-        <div class="topbar">
-        <div class="brand">
-        <div class="brand-mark">D</div>
-        <div><div class="brand-name">dockernts</div></div>
-        <div class="brand-sub">home-lab · {api_base.replace('http://', '').replace('https://', '').replace('/api','')}</div>
-        </div>
-        <div class="cluster-pulse">
-        <span class="pulse-dot"></span>
-        {online_ct} / {len(machines)} machines online
-        </div>
-        </div>
-        """),
-        unsafe_allow_html=True,
-    )
-with tb_right:
-    st.write("")
-    if st.button("+ Deploy", type="primary", use_container_width=True):
-        deploy_dialog(machines)
-
-# ═══════════════════════════════════════════════════════════════════════
-#  MACHINES
-# ═══════════════════════════════════════════════════════════════════════
-st.markdown(
-    html(f"""
-    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-    <div class="section-title">Machines <span class="count">{len(machines)}</span></div>
-    <div class="section-note">heartbeat every 5s</div>
-    </div>
-    """),
-    unsafe_allow_html=True,
-)
-
-if not machines:
-    st.info("No machines registered yet.")
-else:
-    cols = st.columns(3)
-    for i, m in enumerate(machines):
-        with cols[i % 3]:
-            st.markdown(machine_card_html(m), unsafe_allow_html=True)
-            st.write("")
-
-st.write("")
-
-# ═══════════════════════════════════════════════════════════════════════
-#  CONTAINERS
-# ═══════════════════════════════════════════════════════════════════════
-machine_names = [m.get("name") for m in machines if m.get("name")]
-filter_options = ["All machines"] + machine_names
-
-head_l, head_r = st.columns([2, 3])
-with head_l:
-    st.markdown(f'<div class="section-title">Containers <span class="count">{len(containers)}</span></div>', unsafe_allow_html=True)
-with head_r:
-    st.session_state.container_filter = st.radio(
-        "Filter", filter_options,
-        index=filter_options.index(st.session_state.container_filter) if st.session_state.container_filter in filter_options else 0,
-        horizontal=True, label_visibility="collapsed",
-    )
-
-chosen = st.session_state.container_filter
-filtered = containers if chosen == "All machines" else [c for c in containers if c.get("machine") == chosen]
-
-st.markdown(f'<div class="table-card">{containers_table_html(filtered)}</div>', unsafe_allow_html=True)
-
-# ---- manage panel: interactive controls kept beneath the display table ----
-if filtered:
-    st.markdown('<div class="manage-card">', unsafe_allow_html=True)
-    st.markdown('<div class="manage-title">Manage a container</div>', unsafe_allow_html=True)
-    labels = [f"{c.get('name','?')} · {c.get('machine','?')}" for c in filtered]
-    pick = st.selectbox("Container", labels, label_visibility="collapsed")
-    target = filtered[labels.index(pick)]
-    ref = target.get("id") or target.get("short_id") or target.get("name")
-    status_l = (target.get("status") or "").lower()
-
-    b1, b2, b3, b4, b5 = st.columns(5)
-    if b1.button("▶ Start", key=f"start_{ref}", disabled="running" in status_l, use_container_width=True):
-        _, err = api_post(f"/containers/{ref}/start"); connection_issue("Start", err) if err else refresh()
-    if b2.button("■ Stop", key=f"stop_{ref}", disabled="running" not in status_l, use_container_width=True):
-        _, err = api_post(f"/containers/{ref}/stop"); connection_issue("Stop", err) if err else refresh()
-    if b3.button("↻ Restart", key=f"restart_{ref}", use_container_width=True):
-        _, err = api_post(f"/containers/{ref}/restart"); connection_issue("Restart", err) if err else refresh()
-    if b4.button("🗑 Remove", key=f"rm_{ref}", use_container_width=True):
-        _, err = api_delete(f"/containers/{ref}", params={"force": True}); connection_issue("Remove", err) if err else refresh()
-    if b5.button("View logs", key=f"logs_{ref}", use_container_width=True):
-        logs_dialog(ref, target.get("name"))
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ═══════════════════════════════════════════════════════════════════════
-#  SESSION DEPLOYS
-# ═══════════════════════════════════════════════════════════════════════
-if st.session_state.session_deploys:
-    with st.expander(f"Deployments this session ({len(st.session_state.session_deploys)})", expanded=False):
-        st.table(st.session_state.session_deploys)
-
-if st.session_state.auto_refresh:
-    time.sleep(refresh_every)
-    st.cache_data.clear()
-    st.rerun()
